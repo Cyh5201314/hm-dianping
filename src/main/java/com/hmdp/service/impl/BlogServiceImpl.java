@@ -5,10 +5,12 @@ import cn.hutool.core.util.BooleanUtil;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
+import com.hmdp.entity.Follow;
 import com.hmdp.entity.User;
 import com.hmdp.mapper.BlogMapper;
 import com.hmdp.service.IBlogService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.service.IFollowService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.UserHolder;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -39,6 +41,9 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     private IUserService userService;
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private IFollowService followService;
 
     @Override
     public Result queryBlogById(Long id) {
@@ -103,6 +108,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         blog.setIcon(user.getIcon());
     }
 
+
     @Override
     public Result queryBolgLikes(Long id) {
         //1.redis中 查询top5的点赞用户
@@ -120,5 +126,34 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
                 map( user -> BeanUtil.copyProperties(user, UserDTO.class))
                 .collect(Collectors.toList());
         return Result.ok(userDTOS);
+    }
+
+    /**
+     * 保存探店笔记
+     * @param blog
+     * @return
+     */
+    @Override
+    public Result saveBlog(Blog blog) {
+        // 1.获取登录用户
+        UserDTO user = UserHolder.getUser();
+        blog.setUserId(user.getId());
+        // 2.保存探店笔记
+        save(blog);
+        //3.查询作者的所有粉丝,谁关注了当前用户
+        //select *  from tb_follow where follow_user_id = ?
+        List<Follow> follows = followService.lambdaQuery()
+                .eq(Follow::getFollowUserId, user.getId()).list();
+        //4.推荐笔记id给所有粉丝
+        for (Follow follow : follows) {
+            //4.1获取粉丝ID
+            Long userId = follow.getUserId();
+            //4.2推送
+            String key = "feed:"+userId;
+            stringRedisTemplate.opsForZSet().add(key,userId.toString(),System.currentTimeMillis());
+        }
+
+        // 返回id
+        return Result.ok(blog.getId());
     }
 }
