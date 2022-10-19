@@ -1,7 +1,9 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.BooleanUtil;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
 import com.hmdp.entity.User;
 import com.hmdp.mapper.BlogMapper;
@@ -13,6 +15,14 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+import static com.hmdp.utils.RedisConstants.BLOG_LIKED_KEY;
 
 /**
  * <p>
@@ -46,7 +56,12 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
     public void isBlogLiked(Blog blog) {
         //1.获取登陆用户
-        Long userId = UserHolder.getUser().getId();
+        UserDTO userDTO = UserHolder.getUser();
+        if (userDTO==null){
+            //用户未登录,无序查询是否点赞
+            return;
+        }
+        Long userId = userDTO.getId();
         //2.判断当前登陆用户是否已经点赞
         String key = "blog:liked:"+blog.getId();
         Double isMember = stringRedisTemplate.opsForZSet().score(key,userId.toString());
@@ -58,7 +73,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         //1.获取登陆用户
         Long userId = UserHolder.getUser().getId();
         //2.判断当前登陆用户是否已经点赞
-        String key = "blog:liked:"+id;
+        String key = BLOG_LIKED_KEY+id;
         //isMember 判断set集合中是否存在该value(用户Id)的值
         Double score = stringRedisTemplate.opsForZSet().score(key, userId.toString());
         if (score == null){
@@ -86,5 +101,24 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         User user = userService.getById(userId);
         blog.setName(user.getNickName());
         blog.setIcon(user.getIcon());
+    }
+
+    @Override
+    public Result queryBolgLikes(Long id) {
+        //1.redis中 查询top5的点赞用户
+        String key = BLOG_LIKED_KEY+id;
+        //2.最早点赞的用户Id 默认就是按照时间戳升序,所以取0-4
+        Set<String> top5Id = stringRedisTemplate.opsForZSet().range(key, 0, 4);
+        if (top5Id==null||top5Id.isEmpty()) {
+            return Result.ok(Collections.emptyList());
+        }
+        //3.查询出用户信息
+        List<Long> userIds = top5Id.stream().map(Long::valueOf).collect(Collectors.toList());
+        List<User> users = userService.listByIds(userIds);
+        //4.将用户信息转为DTO,隐藏敏感信息
+        List<UserDTO> userDTOS = users.stream().
+                map( user -> BeanUtil.copyProperties(user, UserDTO.class))
+                .collect(Collectors.toList());
+        return Result.ok(userDTOS);
     }
 }
