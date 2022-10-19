@@ -45,10 +45,10 @@ public class BlogController {
 
     @PutMapping("/like/{id}")
     public Result likeBlog(@PathVariable("id") Long id) {
-        // 修改点赞数量
-        blogService.update()
-                .setSql("liked = liked + 1").eq("id", id).update();
-        return Result.ok();
+        // 修改点赞数量    这种方法肯定不行的啦, 一个人可以重复点赞
+//        blogService.update()
+//                .setSql("liked = liked + 1").eq("id", id).update();
+        return blogService.likeBlog(id);
     }
 
     @GetMapping("/of/me")
@@ -60,6 +60,10 @@ public class BlogController {
                 .eq("user_id", user.getId()).page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
         // 获取当前页数据
         List<Blog> records = page.getRecords();
+        records.forEach(blog -> {
+            blogService.queryBlogUser(blog);
+            blogService.isBlogLiked(blog);
+        });
         return Result.ok(records);
     }
 
@@ -79,5 +83,10 @@ public class BlogController {
             blog.setIcon(user.getIcon());
         });
         return Result.ok(records);
+    }
+
+    @GetMapping("/{id}")
+    public Result queryBlogByid(@PathVariable("id")Long id){
+        return blogService.queryBlogById(id);
     }
 }
